@@ -25,3 +25,17 @@ stored in folder **/client**
 go to **/client**
 * cargo build
 * cargo run
+
+### Deamon
+Requires ''systemd''
+
+Install by creating a link to this project
+```
+/etc/systemd/system# ln -s /home/c3ma/led-board/client/ledBoard.service ledBoard.service
+systemctl daemon-reload
+systemctl enable ledBoard.service
+```
+Start deamon with
+```
+systemctl start ledBoard.service
+```

@@ -1,0 +1,17 @@
+[Unit]
+Description=Log uptime in scoreboard
+DefaultDependencies=no
+
+[Service]
+Type=simple
+Restart=on-failure
+User=c3ma
+
+# Specify users home as working directory
+WorkingDirectory=/home/c3ma/
+# Define wrapper to update and start project
+ExecStart=/usr/bin/bash <project home>/client/ledboard.sh
+TimeoutStartSec=0
+
+[Install]
+WantedBy=network.target
