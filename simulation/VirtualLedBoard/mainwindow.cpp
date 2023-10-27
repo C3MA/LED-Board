@@ -32,13 +32,20 @@ void MainWindow::drawImage(QImage *target) {
 }
 
 
-void MainWindow::setLED(uint8_t x, uint8_t y) {
+void MainWindow::setLED(uint8_t x, uint8_t y, bool state) {
     /* draw inital screen */
     QPainter painter(this->mOffscreenPanel);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(COLOR_FOREGROUND, 1));
-    painter.setBrush(COLOR_FOREGROUND);
-    painter.drawEllipse(LED_DIAMETER/2 + (x* LED_DISTANCE), LED_DIAMETER/2 + (y * LED_DISTANCE), LED_DIAMETER, LED_DIAMETER);
+    if (state) {
+        painter.setPen(QPen(COLOR_FOREGROUND, 1));
+        painter.setBrush(COLOR_FOREGROUND);
+    } else {
+        painter.setPen(QPen(COLOR_FOREGROUND_OFF, 1));
+        painter.setBrush(COLOR_FOREGROUND_OFF);
+    }
+    painter.drawEllipse(LED_DIAMETER/2 + (x* LED_DISTANCE), 
+                        LED_DIAMETER/2 + (y * LED_DISTANCE), 
+                        LED_DIAMETER, LED_DIAMETER);
 }
 
 void MainWindow::updatePanel(void) {

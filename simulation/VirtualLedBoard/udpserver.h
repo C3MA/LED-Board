@@ -22,7 +22,7 @@ private:
     void processTheDatagram(QNetworkDatagram datagram);
 
 signals:
-    void changeLEDstate(uint8_t x, uint8_t y);
+    void changeLEDstate(uint8_t x, uint8_t y, bool state);
     void updatePanelContent(void);
 };
 

@@ -20,10 +20,10 @@ UdpLedServer::UdpLedServer (QObject *parent, MainWindow *window)
             window,
             &MainWindow::updatePanel);
 
-
+    bool init = true;
     for(int x=0; x < (PANEL_WIDTH * MAXIMUM_PANELSIZE); x++) {
         for(int y=0; y < PANEL_HEIGHT; y++) {
-            changeLEDstate(x, y);
+            changeLEDstate(x, y, init);
         }
     }
     updatePanelContent();
@@ -57,9 +57,17 @@ void UdpLedServer::processTheDatagram(QNetworkDatagram datagram) {
         uint16_t mask = 1;
         for(int y=0; y < PANEL_HEIGHT; y++) {
             for(int x=0; x < (PANEL_WIDTH * MAXIMUM_PANELSIZE); x++) {
-                if (datagram.data().at(currentIndex) & mask) {
-                    this->changeLEDstate(x, y);
-                    qDebug() << x << "x" << y << " set";
+              /*
+               * The datagram.data().at(currentIndex) here is a char with packed
+               * bits. Each bit needs to be separately extracted and hence the
+               * `mask` is used for this. A bit-wise shift is applied to advance
+               * to the next bit in the char until the char is exhausted. Then
+               * the next char from the datagram is read.
+               */
+              bool state = mask & datagram.data().at(currentIndex);
+              this->changeLEDstate(x, y, state);
+              if (state) {
+                qDebug() << x << "x" << y << " set";
                 }
                 mask = (mask << 1);
                 if (mask >= 256) {

@@ -10,6 +10,7 @@
 
 #define COLOR_BACKGROUND    Qt::black
 #define COLOR_FOREGROUND    QColor(255, 127, 0, 255)
+#define COLOR_FOREGROUND_OFF    QColor(25, 25, 25, 255)
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -27,7 +28,7 @@ public:
     ~MainWindow();
 
 public slots:
-    void setLED(uint8_t x, uint8_t y);
+    void setLED(uint8_t x, uint8_t y, bool state);
     void updatePanel(void);
 
 private:
