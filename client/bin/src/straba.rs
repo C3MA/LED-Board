@@ -1,6 +1,6 @@
 use chrono::DateTime;
 use std::time::{SystemTime, UNIX_EPOCH};
-
+use chrono::Local;
 use serde::Deserialize;
 
 const STATION_URL:&str = "https://www.rnv-online.de/rest/departure/2494";
@@ -79,10 +79,11 @@ pub struct NextDeparture {
 }
 
 pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
-
+    let date = Local::now();
     let st_now = SystemTime::now();
     let seconds = st_now.duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let url = &format!("{}?datetime={}", STATION_URL, seconds);
+    let timeString = date.format("%Y-%m-%d %H:%M:%S");
+    let url = &format!("{}?datetime={}", STATION_URL, timeString);
     let result = reqwest::blocking::get(url);
     
     let mut return_value = NextDeparture {
@@ -118,11 +119,25 @@ pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
         return return_value;
     }
 
+    if debug_print.is_some() && debug_print.unwrap() == true {
+        println!("----------- Seconds {:} {:} requesting ... -----------", seconds, timeString);
+    }
     // parse JSON result.. search of both directions
     let json = body.unwrap();
+    
+    if debug_print.is_some() && debug_print.unwrap() == true {
+        println!("Requesting {:}", json.graph_ql.response.name);
+        println!("Elements {:}", json.graph_ql.response.journeys.elements.len() );
+        println!("------------------------- %< ----------------------------");
+        println!("{}", &raw_text);
+        println!("------------------------- %< ----------------------------");
+    }
+
     for el in json.graph_ql.response.journeys.elements {
+
         if debug_print.is_some() && debug_print.unwrap() == true {
-            println!("Line {:}", el.line.line_group.label);  
+            println!("Requesting {:}", json.graph_ql.response.name);
+            println!("Line {:}", el.line.line_group.label);
         }
         for stop in el.stops {
             // use only valid data
@@ -140,6 +155,8 @@ pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
                     if diff <  return_value.outbound_diff {
                         return_value.outbound_station = stop.destination_label;
                         return_value.outbound_diff = diff;
+                    } else if debug_print.is_some() && debug_print.unwrap() == true {
+                        println!("Unkown diff Stop   {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                     }
                 } else if stop.destination_label.contains("Hochschule") ||
                             stop.destination_label.contains("Hauptbahnhof") ||
@@ -147,13 +164,19 @@ pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
                     if diff <  return_value.inbound_diff {
                         return_value.inbound_station = stop.destination_label;
                         return_value.inbound_diff = diff;
+                    } else if debug_print.is_some() && debug_print.unwrap() == true {
+                        println!("Unkown diff Stop   {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                     }
+                } else if debug_print.is_some() && debug_print.unwrap() == true {
+                    println!("Unkown Stop   {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                 }
             } else {
                 println!("Planned {:} {:?}", stop.destination_label, stop.planned_departure.iso_string)
             }
         }
     }
-
+    if debug_print.is_some() && debug_print.unwrap() == true {
+        println!("----------- end of straba.rs -----------");
+    }
     return_value
 }
