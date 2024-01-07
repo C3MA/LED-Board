@@ -318,6 +318,8 @@ LEDboardClient <ip address>"
     );
     println!("one argument necessary!");
     println!("<ip address>");
+    println!("second argument is optional:");
+    println!("<ip of mqtt server>");
 }
 
 fn check_connection(ipaddress: String) -> bool {
@@ -348,6 +350,63 @@ fn check_connection(ipaddress: String) -> bool {
     return device_online;
 }
 
+fn main_function(ipaddress: String) -> ExitCode {
+    let mut device_online = check_connection(ipaddress.clone());
+    if !device_online {
+        println!("{:} not online", &ipaddress);
+        return ExitCode::FAILURE;
+    }
+
+    let receiver = openweathermap::init_forecast("Mannheim",
+    "metric",
+    "de",
+    "978882ab9dd05e7122ff2b0aef2d3e55",
+    60,1);
+
+    let mut last_data = Option::None;
+    
+    // Test Webcrawler for public transportataion
+    let mut straba_res = straba::fetch_data(Some(true));
+    println!("{:?} {:?}s", straba_res.outbound_station, straba_res.outbound_diff);
+    println!("{:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
+
+    // Render start
+    send_package(ipaddress.clone(), &last_data, &straba_res);
+    loop {
+        let st_now = SystemTime::now();
+        let seconds = st_now.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let delay = time::Duration::from_millis(500);
+        thread::sleep(delay);
+        // Only request, if the device is present
+        if device_online == true {
+            let answer = openweathermap::update_forecast(&receiver);
+            match answer {
+                Some(_) => {
+                    last_data = answer;
+                }
+                None => {
+    
+                }
+            }
+        }
+
+        if (straba_res.request_time + 50) < seconds as i64 {
+            device_online = check_connection(ipaddress.clone());
+            // request once a minute new data
+            if device_online == true {
+                straba_res = straba::fetch_data(None);
+                println!("Update {:?} {:?}s", straba_res.outbound_station, straba_res.outbound_diff);
+                println!("Update {:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
+            }
+        }
+
+        if device_online == true {
+            // Render new image
+            send_package(ipaddress.clone(), &last_data, &straba_res);
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
     match args.len() {
@@ -360,62 +419,7 @@ fn main() -> ExitCode {
         // one argument passed
         2 => {
             let ip = &args[1];
-
-
-            let mut device_online = check_connection(ip.to_string());
-            if !device_online {
-                println!("{} not online", ip);
-                return ExitCode::FAILURE;
-            }
-
-            let receiver = openweathermap::init_forecast("Mannheim",
-            "metric",
-            "de",
-            "978882ab9dd05e7122ff2b0aef2d3e55",
-            60,1);
-
-            let mut last_data = Option::None;
-            
-            // Test Webcrawler for public transportataion
-            let mut straba_res = straba::fetch_data(Some(true));
-            println!("{:?} {:?}s", straba_res.outbound_station, straba_res.outbound_diff);
-            println!("{:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
-
-            // Render start
-            send_package(ip.to_string(), &last_data, &straba_res);
-            loop {
-                let st_now = SystemTime::now();
-                let seconds = st_now.duration_since(UNIX_EPOCH).unwrap().as_secs();
-                let delay = time::Duration::from_millis(500);
-                thread::sleep(delay);
-                // Only request, if the device is present
-                if device_online == true {
-                    let answer = openweathermap::update_forecast(&receiver);
-                    match answer {
-                        Some(_) => {
-                            last_data = answer;
-                        }
-                        None => {
-            
-                        }
-                    }
-                }
-
-                if (straba_res.request_time + 50) < seconds as i64 {
-                    device_online = check_connection(ip.to_string());
-                    // request once a minute new data
-                    if device_online == true {
-                        straba_res = straba::fetch_data(None);
-                        println!("Update {:?} {:?}s", straba_res.outbound_station, straba_res.outbound_diff);
-                        println!("Update {:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
-                    }
-                }
-
-                if device_online == true {
-                    // Render new image
-                    send_package(ip.to_string(), &last_data, &straba_res);
-                }
-            }
+            return main_function(ip.to_string());
         }
         // all the other cases
         _ => {
