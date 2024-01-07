@@ -22,3 +22,4 @@ serde_derive = "1.0"
 serde_json = "1.0"
 # end of web stuff
 ping = "0.4.1"
+paho-mqtt = "0.12.3"

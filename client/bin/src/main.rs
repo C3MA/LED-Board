@@ -20,7 +20,6 @@ use std::net::UdpSocket;
 use std::{env, thread};
 use std::io;
 use std::process::ExitCode;
-
 use openweathermap::forecast::Forecast;
 use straba::NextDeparture;
 // This declaration will look for a file named `straba.rs` and will
@@ -350,11 +349,47 @@ fn check_connection(ipaddress: String) -> bool {
     return device_online;
 }
 
-fn main_function(ipaddress: String) -> ExitCode {
+fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
     let mut device_online = check_connection(ipaddress.clone());
     if !device_online {
         println!("{:} not online", &ipaddress);
         return ExitCode::FAILURE;
+    }
+    let mut mqtt_rx;
+    if mqtt.is_some() {
+        let mqtt_ip: String = mqtt.clone().unwrap();
+        // Define the set of options for the create.
+        // Use an ID for a persistent session.
+        let create_opts = paho_mqtt::CreateOptionsBuilder::new()
+        .server_uri(mqtt_ip.clone())
+        .client_id("ledboard")
+        .finalize();
+        // Create a client.
+        let mqtt_client = paho_mqtt::Client::new(create_opts);
+        if mqtt_client.is_ok() {
+            println!("Connecting to {:} MQTT server...", mqtt_ip);
+            let cli = mqtt_client.unwrap();
+            // Define the set of options for the connection.
+            let conn_opts = paho_mqtt::ConnectOptionsBuilder::new()
+                .keep_alive_interval(Duration::from_secs(20))
+                .clean_session(true)
+                .finalize();
+
+            // Initialize the consumer before connecting.
+            mqtt_rx = cli.start_consuming();
+
+            // Connect and wait for it to complete or fail.
+            if let Err(e) = cli.connect(conn_opts) {
+                println!("Unable to connect:\n\t{:?}", e);
+                return ExitCode::FAILURE;
+            }
+            if let Err(e) = cli.subscribe("room/ledboard", 0) {
+                println!("Error subscribes topics: {:?}", e);
+                return ExitCode::FAILURE;
+            }
+        } else {
+            println!("{:} not online", &mqtt_ip);
+        }
     }
 
     let receiver = openweathermap::init_forecast("Mannheim",
@@ -404,6 +439,12 @@ fn main_function(ipaddress: String) -> ExitCode {
             // Render new image
             send_package(ipaddress.clone(), &last_data, &straba_res);
         }
+
+        // Handle MQTT messages
+        // FIXME https://www.emqx.com/en/blog/how-to-use-mqtt-in-rust
+        if mqtt_rx.is
+            let cli = mqtt_client.unwrap();
+        }
     }
 }
 
@@ -419,7 +460,13 @@ fn main() -> ExitCode {
         // one argument passed
         2 => {
             let ip = &args[1];
-            return main_function(ip.to_string());
+            return main_function(ip.to_string(), None);
+        }
+        // two argument passed
+        3 => {
+            let ip = &args[1];
+            let mqtt = &args[2];
+            return main_function(ip.to_string(), Some(mqtt.to_string()));
         }
         // all the other cases
         _ => {
