@@ -2,6 +2,7 @@
 #include "settings.h"
 #include <QUdpSocket>
 #include <QNetworkDatagram>
+#include <ostream>
 #include "mainwindow.h"
 
 #define UDP_IMAGE_PORT  4242
@@ -49,6 +50,7 @@ void UdpLedServer ::readPendingDatagrams()
 
 void UdpLedServer::processTheDatagram(QNetworkDatagram datagram) {
     if (datagram.isValid() && datagram.data().length() == PACKET_LENGTH) {
+        qInfo("Received regular datagram.");
         uint8_t brightness = datagram.data().at(PACKET_INDEX_BRIGHTNESS);
         int currentIndex = PACKET_INDEX_PANEL0;
 
@@ -70,5 +72,13 @@ void UdpLedServer::processTheDatagram(QNetworkDatagram datagram) {
 
         qDebug() << "Received datagram:" << brightness;
 
+    } else if (datagram.isValid() && datagram.data().length() != PACKET_LENGTH) {
+        qDebug("Received status-check datagram.");
+        //socket = new QUdpSocket(this);
+        this->mUdpSocket->writeDatagram(datagram.data(), sizeof(datagram.data()), datagram.senderAddress(), datagram.senderPort());
+        //this->mUdpSocket->writeDatagram(datagram);
+        qDebug("Returned datagram");
+    } else {
+        qDebug("Received invalid datagram.");
     }
 }

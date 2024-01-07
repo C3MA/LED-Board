@@ -1,11 +1,6 @@
 use chrono::DateTime;
 use std::time::{SystemTime, UNIX_EPOCH};
-use chrono_tz::Europe::Berlin;
-
-/* @file straba.rs
- * @brief fetch next depature of light rail vehicle
- */
-use serde_json::Value;
+use chrono::Local;
 use serde::Deserialize;
 
 const STATION_URL:&str = "https://www.rnv-online.de/rest/departure/2494";
@@ -16,7 +11,8 @@ const STATION_URL:&str = "https://www.rnv-online.de/rest/departure/2494";
 pub struct Station {
     pub id: String,
     pub name: String,
-    pub graphQL: GraphQL,
+    #[serde(alias = "graphQL")]
+    pub graph_ql: GraphQL,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
@@ -41,7 +37,7 @@ pub struct JourneysElement {
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
-    pub lineGroup: LineGroup,
+    pub line_group: LineGroup,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
@@ -61,15 +57,15 @@ pub struct Journey {
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StopsElement {
-    pub destinationLabel:   String,
-    pub plannedDeparture:   IsoStringDateTime,
-    pub realtimeDeparture:  IsoStringDateTime,
+    pub destination_label:   String,
+    pub planned_departure:   IsoStringDateTime,
+    pub realtime_departure:  IsoStringDateTime,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IsoStringDateTime {
-    pub isoString: Option<String>,
+    pub iso_string: Option<String>,
 }
 
 // Return value
@@ -83,13 +79,14 @@ pub struct NextDeparture {
 }
 
 pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
-
+    let date = Local::now();
     let st_now = SystemTime::now();
     let seconds = st_now.duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let url = &format!("{}?datetime={}", STATION_URL, seconds);
+    let timeString = date.format("%Y-%m-%d %H:%M:%S");
+    let url = &format!("{}?datetime={}", STATION_URL, timeString);
     let result = reqwest::blocking::get(url);
     
-    let mut returnValue = NextDeparture {
+    let mut return_value = NextDeparture {
         failure  : false,
         outbound_station  : String::from(""),
         outbound_diff : 10000,
@@ -100,64 +97,86 @@ pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
 
     if result.is_err() {
         println!("Could not read station response {:?}", result.err());
-        returnValue.failure = true;
-        return returnValue;
+        return_value.failure = true;
+        return return_value;
     }
     let text = result.unwrap().text();
     if text.is_err() {
         println!("Could not convert response {:?}", text.err());
-        returnValue.failure = true;
-        return returnValue;
+        return_value.failure = true;
+        return return_value;
     }
 
-    let rawText = &text.unwrap();
-    let body: std::result::Result<Station, serde_json::Error> = serde_json::from_str(&rawText);
+    let raw_text = &text.unwrap();
+    let body: std::result::Result<Station, serde_json::Error> = serde_json::from_str(&raw_text);
 
     if body.is_err() {
         println!("Could not parse json {:?}", body.err());  
         println!("------------------------- %< ----------------------------");
-        println!("{}", &rawText);
+        println!("{}", &raw_text);
         println!("------------------------- %< ----------------------------");
-        returnValue.failure = true;
-        return returnValue;
+        return_value.failure = true;
+        return return_value;
     }
 
+    if debug_print.is_some() && debug_print.unwrap() == true {
+        println!("----------- Seconds {:} {:} requesting ... -----------", seconds, timeString);
+    }
     // parse JSON result.. search of both directions
     let json = body.unwrap();
-    for el in (json.graphQL.response.journeys.elements) {
-        if (debug_print.is_some() && debug_print.unwrap() == true) {
-            println!("Line {:}", el.line.lineGroup.label);  
+    
+    if debug_print.is_some() && debug_print.unwrap() == true {
+        println!("Requesting {:}", json.graph_ql.response.name);
+        println!("Elements {:}", json.graph_ql.response.journeys.elements.len() );
+        println!("------------------------- %< ----------------------------");
+        println!("{}", &raw_text);
+        println!("------------------------- %< ----------------------------");
+    }
+
+    for el in json.graph_ql.response.journeys.elements {
+
+        if debug_print.is_some() && debug_print.unwrap() == true {
+            println!("Requesting {:}", json.graph_ql.response.name);
+            println!("Line {:}", el.line.line_group.label);
         }
         for stop in el.stops {
             // use only valid data
-            if stop.realtimeDeparture.isoString.is_some() && 
-                stop.destinationLabel != "" {
-                let txt_departure = stop.realtimeDeparture.isoString.unwrap();
+            if stop.realtime_departure.iso_string.is_some() && 
+                stop.destination_label != "" {
+                let txt_departure = stop.realtime_departure.iso_string.unwrap();
                 let next_departure = DateTime::parse_from_rfc3339(&txt_departure).unwrap();
                 
                 let diff = next_departure.timestamp() - (seconds  as i64);
-                if (debug_print.is_some() && debug_print.unwrap() == true) {
-                    println!("To      {:} {:} (in {:} seconds)", stop.destinationLabel, txt_departure, diff );
+                if debug_print.is_some() && debug_print.unwrap() == true {
+                    println!("To      {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                 }
                 
-                if stop.destinationLabel.contains("Rheinau") {
-                    if (diff <  returnValue.outbound_diff) {
-                        returnValue.outbound_station = stop.destinationLabel;
-                        returnValue.outbound_diff = diff;
+                if stop.destination_label.contains("Rheinau") {
+                    if diff <  return_value.outbound_diff {
+                        return_value.outbound_station = stop.destination_label;
+                        return_value.outbound_diff = diff;
+                    } else if debug_print.is_some() && debug_print.unwrap() == true {
+                        println!("Unkown diff Stop   {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                     }
-                } else if stop.destinationLabel.contains("Hochschule") ||
-                            stop.destinationLabel.contains("Hauptbahnhof") ||
-                            stop.destinationLabel.contains("Schönau") {
-                    if (diff <  returnValue.inbound_diff) {
-                        returnValue.inbound_station = stop.destinationLabel;
-                        returnValue.inbound_diff = diff;
+                } else if stop.destination_label.contains("Hochschule") ||
+                            stop.destination_label.contains("Hauptbahnhof") ||
+                            stop.destination_label.contains("Schönau") {
+                    if diff <  return_value.inbound_diff {
+                        return_value.inbound_station = stop.destination_label;
+                        return_value.inbound_diff = diff;
+                    } else if debug_print.is_some() && debug_print.unwrap() == true {
+                        println!("Unkown diff Stop   {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                     }
+                } else if debug_print.is_some() && debug_print.unwrap() == true {
+                    println!("Unkown Stop   {:} {:} (in {:} seconds)", stop.destination_label, txt_departure, diff );
                 }
             } else {
-                println!("Planned {:} {:?}", stop.destinationLabel, stop.plannedDeparture.isoString)
+                println!("Planned {:} {:?}", stop.destination_label, stop.planned_departure.iso_string)
             }
         }
     }
-
-    returnValue
+    if debug_print.is_some() && debug_print.unwrap() == true {
+        println!("----------- end of straba.rs -----------");
+    }
+    return_value
 }

@@ -22,6 +22,7 @@ MainWindow::~MainWindow()
 }
 
 void MainWindow::drawImage(QImage *target) {
+    (void)target; /* handle unused variable ;-) */
     this->mScene=new QGraphicsScene() ;
     QGraphicsView *graphicsView = new QGraphicsView();
     graphicsView->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);

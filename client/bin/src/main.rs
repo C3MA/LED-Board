@@ -1,4 +1,5 @@
-use std::time::Duration;
+use std::{time::Duration, fmt::format};
+use str;
 use bit::BitIndex;
 use chrono_tz::Europe::Berlin;
 use chrono::{DateTime, NaiveDateTime, Utc, Timelike};
@@ -9,20 +10,19 @@ use tinybmp::Bmp;
 use core::time;
 use embedded_graphics::{
     image::Image,
-    mono_font::{iso_8859_1::FONT_6X10, iso_8859_1::FONT_5X8, MonoTextStyle},
+    mono_font::{iso_8859_1::FONT_6X10, iso_8859_1::FONT_5X8, iso_8859_1::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::PrimitiveStyle,
     text::Text,
 };
 
 use std::net::UdpSocket;
 use std::{env, thread};
 use std::io;
+use std::process::ExitCode;
 
 use openweathermap::forecast::Forecast;
 use straba::NextDeparture;
-use ping;
 // This declaration will look for a file named `straba.rs` and will
 // insert its contents inside a module named `straba` under this scope
 mod straba;
@@ -35,10 +35,6 @@ const IMAGE_HEIGHT: u32 = 40;
 const IMAGE_HEIGHT_BYTE: u32 = 40;
 const IMAGE_LENGTH: usize = (IMAGE_WIDTH_BYTE * IMAGE_HEIGHT_BYTE) as usize;
 const PACKAGE_LENGTH: usize = (IMAGE_LENGTH + 1) as usize;
-
-const PRIMITIVE_STYLE:PrimitiveStyle<BinaryColor> = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-
-
 
 
 struct UdpDisplay {
@@ -131,6 +127,7 @@ fn render_weather(display: &mut UdpDisplay ,data: &Option<Result<Forecast, Strin
                 println!("{}", &error);
             }
             Ok(result) => {
+                let mut temp:&f64 = &-1_f64;
                 if !result.list.is_empty() {
                     let mut max:f64 = 0_f64;
                     let mut best = &result.list[0];
@@ -143,10 +140,13 @@ fn render_weather(display: &mut UdpDisplay ,data: &Option<Result<Forecast, Strin
                         let hour = europe_time.hour();
                         let minute = europe_time.minute();
 
-                        let cur_time = DateTime::<Utc>::default();
+                        let cur_time = chrono::offset::Utc::now();
                         if zoned_time > cur_time {
                             println!("Skipping old result {hour}:{minute} @{time_s}");
                         }
+
+                        temp = &forecast.main.temp;
+                        println!("Forecast Temp is {temp}°C");
 
                         match &forecast.rain {
                             Some(x) => {
@@ -159,7 +159,6 @@ fn render_weather(display: &mut UdpDisplay ,data: &Option<Result<Forecast, Strin
                             },
                             None    => println!("No rain at {hour}:{minute}"),
                         }
-
                         
                     }
                     
@@ -168,7 +167,14 @@ fn render_weather(display: &mut UdpDisplay ,data: &Option<Result<Forecast, Strin
                     
                     println!("Weather info: {} desc: {} icon {}", condition.main, condition.description, condition.icon);
 
-                    render_weather_icon(&condition, display);          
+                    render_weather_icon(&condition, display);
+                    
+
+                    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+                        let temp_string = format!("{temp:.0}°C");
+                        Text::new(&temp_string, Point::new((IMAGE_WIDTH-60) as i32, 7), text_style)
+                        .draw(display)
+                        .unwrap();
                 }
             }
         },
@@ -224,9 +230,59 @@ fn render_weather_icon(condition: &Weather, display: &mut UdpDisplay ){
     Image::new(&icon_image.unwrap(), Point::new((IMAGE_WIDTH-40) as i32, 0)).draw(display).unwrap();
 }
 
+fn render_clock(display: &mut UdpDisplay){
+    let time = chrono::offset::Utc::now();
+    let europe_time = time.with_timezone(&Berlin);
+    let hour = europe_time.hour();
+    let minute = europe_time.minute();
+    let second = europe_time.second();
+    let time = format!("{hour:0>2}:{minute:0>2}:{second:0>2}");
+    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    Text::new(&time, Point::new((1) as i32, 7), text_style)
+    .draw(display)
+    .unwrap();
+}
+
+fn render_strab_partial(display: &mut UdpDisplay, station: &String, diff: i64, height: i32) {
+    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let mut diff_str = format!("{}min", (diff / 60));
+    if diff < 60 {
+        diff_str = String::from("sofort");
+    }
+    let station_short: String;
+    if str::len(&station) > 13 {
+        station_short = station
+            .replace("Straße", "Str")
+            .replace("straße", "str")
+            .replace("Platz", "Pl")
+            .replace("platz", "pl")
+            .replace("Hauptbahnhof", "Hbf")
+            .replace("Bahnhof", "Bf");
+    } else {
+        station_short = station.to_string();
+    }
+    let station_clip: String;
+    if str::len(&station_short) > 13 {
+        station_clip = station_short[0..12].to_string();
+    } else {
+        station_clip = station_short.to_string();
+    }
+    Text::new(&station_clip, Point::new(1, height), text_style)
+            .draw(display)
+            .unwrap();
+    Text::new(&diff_str, Point::new(80, height), text_style)
+            .draw(display)
+            .unwrap();
+}
+
+fn render_strab(display: &mut UdpDisplay, straba_res: &NextDeparture) {
+    render_strab_partial(display, &straba_res.outbound_station, straba_res.outbound_diff, 17);
+    render_strab_partial(display, &straba_res.inbound_station, straba_res.inbound_diff, 27);
+}
+
 fn send_package(ipaddress: String, 
                 data: &Option<Result<Forecast, String>>,
-                strabaRes: &NextDeparture) {
+                straba_res: &NextDeparture) {
     let mut package: [u8; PACKAGE_LENGTH] = [0; PACKAGE_LENGTH];
 
     // Brightness
@@ -236,37 +292,16 @@ fn send_package(ipaddress: String,
         image: [0; IMAGE_SIZE_BYTE],
     };
 
-    if (data.is_some()) {
+    if data.is_some() {
         render_weather(&mut display, data);                   
     }
 
-    if strabaRes.failure == false {
-        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-        let text_style_station = MonoTextStyle::new(&FONT_5X8, BinaryColor::On);
-        let mut outbound = format!("+{}min", (strabaRes.outbound_diff / 60));
-        if (strabaRes.outbound_diff < 60) {
-            outbound = String::from("sofort");
-        }
-        Text::new(&strabaRes.outbound_station, Point::new(1, 15), text_style_station)
-                .draw(&mut display)
-                .unwrap();
-        Text::new(&outbound, Point::new(80, 15), text_style)
-                .draw(&mut display)
-                .unwrap();
-
-        let mut inbound = format!("+{}min", (strabaRes.inbound_diff / 60));
-        if (strabaRes.inbound_diff < 60) {
-            inbound = String::from("sofort");
-        }
-
-        
-        Text::new(&strabaRes.inbound_station, Point::new(1, 25), text_style_station)
-                .draw(&mut display)
-                .unwrap();
-        Text::new(&inbound, Point::new(80, 24), text_style)
-                .draw(&mut display)
-                .unwrap();
+    if straba_res.failure == false {
+        render_strab(&mut display, straba_res);
     }
+
+    render_clock(&mut display);
+
 
     package[1..PACKAGE_LENGTH].copy_from_slice(&display.image);
     // client need to bind to client port (1 before 4242)
@@ -286,12 +321,12 @@ LEDboardClient <ip address>"
 }
 
 fn check_connection(ipaddress: String) -> bool {
-    let mut device_online = false;
+    let device_online;
     // generate a faulty package length
     let mut package: [u8; PACKAGE_LENGTH/2] = [0; PACKAGE_LENGTH/2];
     // client need to bind to client port (1 before 4242)
     let socket = UdpSocket::bind("0.0.0.0:14242").expect("couldn't bind to address");
-    socket.set_read_timeout(Some(Duration::from_secs(10))); /* 10 seconds timeout */
+    socket.set_read_timeout(Some(Duration::from_secs(10))).unwrap(); /* 10 seconds timeout */
     socket
         .send_to(&package, ipaddress + ":4242")
         .expect("couldn't send data");
@@ -299,28 +334,28 @@ fn check_connection(ipaddress: String) -> bool {
     // self.recv_buff is a [u8; 8092]
     let answer = socket.recv_from(&mut package);
     match answer {
-        Ok((n, addr)) => {
+        Ok((_n, _addr)) => {
             //println!("{} bytes response from {:?} {:?}", n, addr, &package[..n]);
             device_online = true;
         }
         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
             device_online = false;
         }
-        Err(e) => {
+        Err(_e) => {
             device_online = false;
         }
     }
     return device_online;
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
-
     match args.len() {
         // no arguments passed
         1 => {
             // show a help message
             help();
+            return ExitCode::SUCCESS;
         }
         // one argument passed
         2 => {
@@ -328,9 +363,9 @@ fn main() {
 
 
             let mut device_online = check_connection(ip.to_string());
-            if (!device_online) {
+            if !device_online {
                 println!("{} not online", ip);
-                return
+                return ExitCode::FAILURE;
             }
 
             let receiver = openweathermap::init_forecast("Mannheim",
@@ -342,16 +377,16 @@ fn main() {
             let mut last_data = Option::None;
             
             // Test Webcrawler for public transportataion
-            let mut strabaRes = straba::fetch_data(Some(true));
-            println!("{:?} {:?}s", strabaRes.outbound_station, strabaRes.outbound_diff);
-            println!("{:?} {:?}s", strabaRes.inbound_station , strabaRes.inbound_diff);
+            let mut straba_res = straba::fetch_data(Some(true));
+            println!("{:?} {:?}s", straba_res.outbound_station, straba_res.outbound_diff);
+            println!("{:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
 
             // Render start
-            send_package(ip.to_string(), &last_data, &strabaRes);
+            send_package(ip.to_string(), &last_data, &straba_res);
             loop {
                 let st_now = SystemTime::now();
                 let seconds = st_now.duration_since(UNIX_EPOCH).unwrap().as_secs();
-                let delay = time::Duration::from_millis(10000);
+                let delay = time::Duration::from_millis(500);
                 thread::sleep(delay);
                 // Only request, if the device is present
                 if device_online == true {
@@ -366,19 +401,19 @@ fn main() {
                     }
                 }
 
-                if (strabaRes.request_time + 60) < seconds as i64 {
+                if (straba_res.request_time + 50) < seconds as i64 {
                     device_online = check_connection(ip.to_string());
                     // request once a minute new data
                     if device_online == true {
-                        strabaRes = straba::fetch_data(None);
-                        println!("Update {:?} {:?}s", strabaRes.outbound_station, strabaRes.outbound_diff);
-                        println!("Update {:?} {:?}s", strabaRes.inbound_station , strabaRes.inbound_diff);
+                        straba_res = straba::fetch_data(None);
+                        println!("Update {:?} {:?}s", straba_res.outbound_station, straba_res.outbound_diff);
+                        println!("Update {:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
                     }
                 }
 
                 if device_online == true {
                     // Render new image
-                    send_package(ip.to_string(), &last_data, &strabaRes);
+                    send_package(ip.to_string(), &last_data, &straba_res);
                 }
             }
         }
@@ -386,6 +421,7 @@ fn main() {
         _ => {
             // show a help message
             help();
+            return ExitCode::SUCCESS;
         }
     }
 }
