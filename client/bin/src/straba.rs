@@ -128,9 +128,9 @@ pub fn fetch_data(debug_print : Option<bool>) -> NextDeparture {
     if debug_print.is_some() && debug_print.unwrap() == true {
         println!("Requesting {:}", json.graph_ql.response.name);
         println!("Elements {:}", json.graph_ql.response.journeys.elements.len() );
-        println!("------------------------- %< ----------------------------");
-        println!("{}", &raw_text);
-        println!("------------------------- %< ----------------------------");
+        //println!("------------------------- %< ----------------------------");
+        //println!("{}", &raw_text);
+        //println!("------------------------- %< ----------------------------");
     }
 
     for el in json.graph_ql.response.journeys.elements {
