@@ -1,5 +1,5 @@
 use std::{time::Duration, fmt::format};
-use std::sync::RwLock;
+use std::sync::{RwLock, Mutex, Arc};
 use openssl::string;
 use paho_mqtt;
 use str;
@@ -245,6 +245,13 @@ fn render_clock(display: &mut UdpDisplay){
     .unwrap();
 }
 
+fn render_mqtt_message(display: &mut UdpDisplay, mqtt_message: String){
+    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    Text::new(&mqtt_message, Point::new((1) as i32, 37), text_style)
+    .draw(display)
+    .unwrap();
+}
+
 fn render_strab_partial(display: &mut UdpDisplay, station: &String, diff: i64, height: i32) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut diff_str = format!("{}min", (diff / 60));
@@ -313,7 +320,8 @@ fn mqtt_on_connect_failure(cli: &paho_mqtt::AsyncClient, _msgid: u16, rc: i32) {
 
 fn send_package(ipaddress: String, 
                 data: &Option<Result<Forecast, String>>,
-                straba_res: &NextDeparture) {
+                straba_res: &NextDeparture,
+                mqtt_message: Option<String>) {
     let mut package: [u8; PACKAGE_LENGTH] = [0; PACKAGE_LENGTH];
 
     // Brightness
@@ -329,6 +337,10 @@ fn send_package(ipaddress: String,
 
     if straba_res.failure == false {
         render_strab(&mut display, straba_res);
+    }
+
+    if mqtt_message.is_some() {
+        render_mqtt_message(&mut display, mqtt_message.unwrap());       
     }
 
     render_clock(&mut display);
@@ -381,6 +393,10 @@ fn check_connection(ipaddress: String) -> bool {
     return device_online;
 }
 
+struct Message {
+    string: Option<String>
+}
+
 fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
     let mut device_online = check_connection(ipaddress.clone());
     if !device_online {
@@ -388,7 +404,7 @@ fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
         return ExitCode::FAILURE;
     }
     let mut mqtt_client: Option<paho_mqtt::AsyncClient> = None;
-    let mut mqtt_message: Option<String> = None;
+    let mut mqtt_message: Arc<Mutex<Message>> = Arc::new(Mutex::new(Message{ string: None }));
     if mqtt.is_some() {
         let mqtt_ip: String = mqtt.clone().unwrap();
         // Define the set of options for the create.
@@ -424,13 +440,15 @@ fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
 
         // Attach a closure to the client to receive callback
         // on incoming messages.
-        local_mqtt.set_message_callback(|cli, msg| {
+        let mqtt_message_for_callback = mqtt_message.clone();
+        local_mqtt.set_message_callback(move |cli, msg| {
             if let Some(msg) = msg {
                 let topic = msg.topic();
                 let payload_str = msg.payload_str();
 
                 //println!("MQTT | {} - {}", topic, payload_str);
-                mqtt_message = Some(payload_str.to_string());
+                let mut lock = mqtt_message_for_callback.lock().unwrap();
+                lock.string = Some(payload_str.to_string())
             }
         });
 
@@ -465,7 +483,7 @@ fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
     println!("{:?} {:?}s", straba_res.inbound_station , straba_res.inbound_diff);
 
     // Render start
-    send_package(ipaddress.clone(), &last_data, &straba_res);
+    send_package(ipaddress.clone(), &last_data, &straba_res, Some("MQTT: room/ledboard".to_string()));
 
     loop {
         let st_now = SystemTime::now();
@@ -495,11 +513,18 @@ fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
             }
         }
 
-        if device_online == true {
-            // Render new image
-            send_package(ipaddress.clone(), &last_data, &straba_res);
+        let lock = mqtt_message.lock().unwrap();
+        let mqtt_message: Option<String>;
+        if lock.string.is_some() {
+            mqtt_message = lock.string.clone();
+        } else {
+            mqtt_message = None;
         }
 
+        if device_online == true {
+            // Render new image
+            send_package(ipaddress.clone(), &last_data, &straba_res, mqtt_message);
+        }
         // Handle MQTT messages
         
     }
