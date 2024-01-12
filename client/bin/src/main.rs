@@ -1,5 +1,6 @@
 use std::{time::Duration, fmt::format};
 use std::sync::RwLock;
+use openssl::string;
 use paho_mqtt;
 use str;
 use bit::BitIndex;
@@ -387,6 +388,7 @@ fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
         return ExitCode::FAILURE;
     }
     let mut mqtt_client: Option<paho_mqtt::AsyncClient> = None;
+    let mut mqtt_message: Option<String> = None;
     if mqtt.is_some() {
         let mqtt_ip: String = mqtt.clone().unwrap();
         // Define the set of options for the create.
@@ -427,7 +429,8 @@ fn main_function(ipaddress: String, mqtt: Option<String>) -> ExitCode {
                 let topic = msg.topic();
                 let payload_str = msg.payload_str();
 
-                println!("MQTT | {} - {}", topic, payload_str);
+                //println!("MQTT | {} - {}", topic, payload_str);
+                mqtt_message = Some(payload_str.to_string());
             }
         });
 
